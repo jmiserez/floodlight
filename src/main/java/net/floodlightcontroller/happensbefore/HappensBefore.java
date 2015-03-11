@@ -62,13 +62,14 @@ public class HappensBefore implements IFloodlightModule, IOFMessageListener {
 		if (msg.getType().equals(OFType.PACKET_IN)){
 			cntx.getStorage().put(HAPPENSBEFORE_MSG_IN, b64_msg);
 			cntx.getStorage().put(HAPPENSBEFORE_MSG_IN_SWITCH, sw.getId());
-			System.out.format("HappensBefore-MessageIn:%d:%s", sw.getId(), b64_msg);
+			System.out.format("[net.floodlightcontroller.happensbefore.HappensBefore-MessageIn:%d:%s]%n", sw.getId(), b64_msg);
 		} else {
 			String in_msg = (String) cntx.getStorage().get(HAPPENSBEFORE_MSG_IN);
 			Long in_msg_switch_id = (Long) cntx.getStorage().get(HAPPENSBEFORE_MSG_IN_SWITCH);
 
 			if(in_msg != null && in_msg_switch_id != null){
-				System.out.format("HappensBefore-MessageOut:%d:%s:%d:%s", in_msg_switch_id, in_msg, sw.getId(), b64_msg);
+				System.out.format("[net.floodlightcontroller.happensbefore.HappensBefore-MessageOut:%d:%s:%d:%s]%n", in_msg_switch_id, in_msg, sw.getId(), b64_msg);
+				
 			}
 		}
         return Command.CONTINUE;
