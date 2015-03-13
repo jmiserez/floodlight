@@ -20,6 +20,7 @@ import net.floodlightcontroller.core.module.IFloodlightService;
 import org.jboss.netty.buffer.ChannelBuffer;
 import org.jboss.netty.buffer.ChannelBuffers;
 import org.jboss.netty.handler.codec.base64.Base64;
+import org.jboss.netty.handler.codec.base64.Base64Dialect;
 import org.jboss.netty.util.CharsetUtil;
 import org.openflow.protocol.OFMessage;
 import org.openflow.protocol.OFType;
@@ -50,20 +51,20 @@ public class HappensBefore implements IFloodlightModule, IOFMessageListener {
 	@Override
 	public boolean isCallbackOrderingPrereq(OFType type, String name) {
 		// "name" should be called BEFORE this
-		return name.contains("happensbefore") && OUT_TYPES.contains(type);
+		return OUT_TYPES.contains(type);
 	}
 
 	@Override
 	public boolean isCallbackOrderingPostreq(OFType type, String name) {
 		// "name" should be called AFTER this
-		return name.contains("happensbefore") && IN_TYPES.contains(type);
+		return IN_TYPES.contains(type);
 	}
 	
 	private String formatMsg(OFMessage msg, long swid){
 		ChannelBuffer buf = ChannelBuffers.dynamicBuffer();
 		msg.writeTo(buf);
 		ChannelBuffer encoded = Base64.encode(buf);
-		String b64_msg = encoded.toString(CharsetUtil.UTF_8).replace("\n", "");
+		String b64_msg = encoded.toString(CharsetUtil.US_ASCII).replace("\n", "");
 		return Long.toString(swid)+":"+b64_msg;
 	}
 	
