@@ -64,7 +64,7 @@ public class HappensBefore implements IFloodlightModule, IOFMessageListener {
 		ChannelBuffer buf = ChannelBuffers.dynamicBuffer();
 		msg.writeTo(buf);
 		ChannelBuffer encoded = Base64.encode(buf);
-		String b64_msg = encoded.toString(CharsetUtil.US_ASCII).replace("\n", "");
+		String b64_msg = encoded.toString(CharsetUtil.UTF_8).replace("\n", "");
 		return Long.toString(swid)+":"+b64_msg;
 	}
 	

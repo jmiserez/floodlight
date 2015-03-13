@@ -26,6 +26,7 @@ import org.jboss.netty.buffer.ChannelBuffer;
 import org.jboss.netty.buffer.ChannelBuffers;
 import org.jboss.netty.handler.codec.base64.Base64;
 import org.jboss.netty.util.CharsetUtil;
+import org.openflow.protocol.OFBarrierRequest;
 import org.openflow.protocol.OFFlowMod;
 import org.openflow.protocol.OFMatch;
 import org.openflow.protocol.OFMessage;
@@ -68,7 +69,7 @@ public class FlawedFirewall implements IFloodlightModule, IOFMessageListener {
 	protected final static short IDLE_TIMEOUT = 0;
 	protected final static short HARD_TIMEOUT = 0;
 	
-	protected final static boolean INSERT_BARRIER = false;
+	protected final static boolean USE_BARRIER = false;
 	
 	@Override
 	public String getName() {
@@ -159,7 +160,7 @@ public class FlawedFirewall implements IFloodlightModule, IOFMessageListener {
         //software switch logic
         OFPacketOut po = (OFPacketOut) floodlightProvider.getOFMessageFactory().getMessage(OFType.PACKET_OUT);
         po.setBufferId(pi.getBufferId()).setInPort(pi.getInPort());
-
+        
 		//default is to flood
     	Short outPort = OFPort.OFPP_FLOOD.getValue();
 
@@ -244,29 +245,11 @@ public class FlawedFirewall implements IFloodlightModule, IOFMessageListener {
         }
         
         if(trafficAllowed){
-	        // set actions
+            // set actions
 	        OFActionOutput action = new OFActionOutput().setPort(outPort);
 	        po.setActions(Collections.singletonList((OFAction)action));
 	        po.setActionsLength((short) OFActionOutput.MINIMUM_LENGTH);
-	
-	        // set data if is is included in the packetin
-	        if (pi.getBufferId() == OFPacketOut.BUFFER_ID_NONE) {
-	        	byte[] packetData = pi.getPacketData();
-	        	po.setLength(U16.t(OFPacketOut.MINIMUM_LENGTH
-	        			+ po.getActionsLength() + packetData.length));
-	        	po.setPacketData(packetData);
-	        } else {
-	        	po.setLength(U16.t(OFPacketOut.MINIMUM_LENGTH
-	        			+ po.getActionsLength()));
-	        }
-	        
-	        //NOTE: Removing this will have the effect of all packets being dropped when there is no flow installed yet.
-	        try {
-	        	sw.write(po, cntx);
-	        } catch (IOException e) {
-	        	log.error("Failure writing PacketOut", e);
-	        }
-        
+
 	        if(FlawedFirewall.ENABLE_FIREWALL && FlawedFirewall.USE_FLOWS){
 	        	if(FlawedFirewall.INDUCE_RACE_CONDITION){
 		        	try {
@@ -362,6 +345,29 @@ public class FlawedFirewall implements IFloodlightModule, IOFMessageListener {
 			            log.error("Failed to write {} to switch {}", new Object[]{ flowMod, sw }, e);
 			        }
 		        }
+	        }
+	        if (FlawedFirewall.USE_BARRIER){
+	            OFBarrierRequest barrier = (OFBarrierRequest) floodlightProvider.getOFMessageFactory().getMessage(OFType.BARRIER_REQUEST);
+	            try {
+		        	sw.write(barrier, cntx);
+		        } catch (IOException e) {
+		        	log.error("Failure writing barrier", e);
+		        }
+	        }
+	        // set data if is is included in the packetin
+	        if (pi.getBufferId() == OFPacketOut.BUFFER_ID_NONE) {
+	        	byte[] packetData = pi.getPacketData();
+	        	po.setLength(U16.t(OFPacketOut.MINIMUM_LENGTH
+	        			+ po.getActionsLength() + packetData.length));
+	        	po.setPacketData(packetData);
+	        } else {
+	        	po.setLength(U16.t(OFPacketOut.MINIMUM_LENGTH
+	        			+ po.getActionsLength()));
+	        }
+	        try {
+	        	sw.write(po, cntx);
+	        } catch (IOException e) {
+	        	log.error("Failure writing barrier", e);
 	        }
         } else {
         	if(FlawedFirewall.ENABLE_FIREWALL && FlawedFirewall.USE_FLOWS){
