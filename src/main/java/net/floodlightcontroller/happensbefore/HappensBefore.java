@@ -1,10 +1,14 @@
 package net.floodlightcontroller.happensbefore;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
+import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import net.floodlightcontroller.core.FloodlightContext;
+import net.floodlightcontroller.core.FloodlightContextStore;
 import net.floodlightcontroller.core.IFloodlightProviderService;
 import net.floodlightcontroller.core.IOFMessageListener;
 import net.floodlightcontroller.core.IOFSwitch;
@@ -29,9 +33,14 @@ public class HappensBefore implements IFloodlightModule, IOFMessageListener {
 	
 	protected IFloodlightProviderService floodlightProvider;
 	protected static Logger log;
+	protected static HashMap<Long, String> threadToLatestMsgIn;
 	
-	public final static String HAPPENSBEFORE_MSG_IN = "happensbefore_msg_in";
-	public final static String HAPPENSBEFORE_MSG_IN_SWITCH = "happensbefore_msg_in_switch";
+	public final static String HAPPENSBEFORE_MSG_IN = "net.floodlightcontroller.happensbefore.HappensBefore.msgin";
+	
+	public final static List<OFType> IN_TYPES = Arrays.asList(OFType.PACKET_IN, OFType.FLOW_REMOVED);
+	public final static List<OFType> OUT_TYPES = Arrays.asList(OFType.PACKET_OUT, OFType.FLOW_MOD, OFType.BARRIER_REQUEST);
+	
+	public static final FloodlightContextStore<String> hbStore = new FloodlightContextStore<String>();
 	
 	@Override
 	public String getName() {
@@ -40,36 +49,70 @@ public class HappensBefore implements IFloodlightModule, IOFMessageListener {
 
 	@Override
 	public boolean isCallbackOrderingPrereq(OFType type, String name) {
-		// TODO Auto-generated method stub
-		return false;
+		// "name" should be called BEFORE this
+		return name.contains("happensbefore") && OUT_TYPES.contains(type);
 	}
 
 	@Override
 	public boolean isCallbackOrderingPostreq(OFType type, String name) {
-		// TODO Auto-generated method stub
-		return false;
+		// "name" should be called AFTER this
+		return name.contains("happensbefore") && IN_TYPES.contains(type);
 	}
-
-	@Override
-	public net.floodlightcontroller.core.IListener.Command receive(
-			IOFSwitch sw, OFMessage msg, FloodlightContext cntx) {
-		
+	
+	private String formatMsg(OFMessage msg, long swid){
 		ChannelBuffer buf = ChannelBuffers.dynamicBuffer();
 		msg.writeTo(buf);
 		ChannelBuffer encoded = Base64.encode(buf);
 		String b64_msg = encoded.toString(CharsetUtil.UTF_8).replace("\n", "");
+		return Long.toString(swid)+":"+b64_msg;
+	}
+	
+	@Override
+	public net.floodlightcontroller.core.IListener.Command receive(
+			IOFSwitch sw, OFMessage msg, FloodlightContext cntx) {
 		
-		if (msg.getType().equals(OFType.PACKET_IN)){
-			cntx.getStorage().put(HAPPENSBEFORE_MSG_IN, b64_msg);
-			cntx.getStorage().put(HAPPENSBEFORE_MSG_IN_SWITCH, sw.getId());
-			System.out.format("[net.floodlightcontroller.happensbefore.HappensBefore-MessageIn:%d:%s]%n", sw.getId(), b64_msg);
-		} else {
-			String in_msg = (String) cntx.getStorage().get(HAPPENSBEFORE_MSG_IN);
-			Long in_msg_switch_id = (Long) cntx.getStorage().get(HAPPENSBEFORE_MSG_IN_SWITCH);
-
-			if(in_msg != null && in_msg_switch_id != null){
-				System.out.format("[net.floodlightcontroller.happensbefore.HappensBefore-MessageOut:%d:%s:%d:%s]%n", in_msg_switch_id, in_msg, sw.getId(), b64_msg);
+		String currentMsgString = this.formatMsg(msg, sw.getId());
+		
+		if (IN_TYPES.contains(msg.getType())){
+			hbStore.put(cntx, HAPPENSBEFORE_MSG_IN, currentMsgString);
+			System.out.format("net.floodlightcontroller.happensbefore.HappensBefore-MessageIn-[%s]%n", currentMsgString);
+			System.out.flush();
+			
+			Thread t = Thread.currentThread();
+			long workerId = t.getId();
+			threadToLatestMsgIn.put(workerId, currentMsgString);
+			
+		}
+		
+		if (OUT_TYPES.contains(msg.getType())) {
+			String previousMsgString = hbStore.get(cntx, HAPPENSBEFORE_MSG_IN);
+			if(previousMsgString == null){
+				log.error("Floodlight context not passed by previous module. Will analyze call stack instead: "+msg.getType().toString());
 				
+				// Get information by other means. We know that Floodlight uses only 1 single thread per switch connection.
+				// So in case a module does not pass a context, we will just use the latest message in, if there is a Controller.handleMessage in the stack trace
+				
+				Thread t = Thread.currentThread();
+				long workerId = t.getId();
+				boolean found = false;
+				StackTraceElement[] stack = Thread.currentThread().getStackTrace();
+				for( StackTraceElement e : stack){
+					if (e.getClassName().equals("net.floodlightcontroller.core.internal.Controller") &&
+							e.getMethodName().equals("handleMessage")){
+						// This is a reactive message out.
+						previousMsgString = threadToLatestMsgIn.get(workerId);
+						found = true;
+						break;
+					}
+				}
+				if (!found){
+					// This must be a proactive message out. Clear the latest message in and proceed.
+					threadToLatestMsgIn.remove(workerId);
+				}
+			}
+			if(previousMsgString != null){
+				System.out.format("net.floodlightcontroller.happensbefore.HappensBefore-MessageOut-[%s:%s]%n", previousMsgString, currentMsgString);
+				System.out.flush();
 			}
 		}
         return Command.CONTINUE;
@@ -99,18 +142,19 @@ public class HappensBefore implements IFloodlightModule, IOFMessageListener {
 			throws FloodlightModuleException {
 		floodlightProvider = context.getServiceImpl(IFloodlightProviderService.class);
 	    log = LoggerFactory.getLogger(HappensBefore.class);
-	    log.debug("HappensBefore logger ready");
+	    log.debug("HappensBefore logger loading.");
+	    threadToLatestMsgIn = new HashMap<Long, String>();
 	}
 
 	@Override
 	public void startUp(FloodlightModuleContext context)
 			throws FloodlightModuleException {
-		// in events
-		floodlightProvider.addOFMessageListener(OFType.PACKET_IN, this);
-		// out events
-		floodlightProvider.addOFMessageListener(OFType.BARRIER_REQUEST, this);
-		floodlightProvider.addOFMessageListener(OFType.FLOW_MOD, this);
-		floodlightProvider.addOFMessageListener(OFType.PACKET_OUT, this);
+		for (OFType type : IN_TYPES) {
+			floodlightProvider.addOFMessageListener(type, this);
+		}
+		for (OFType type : OUT_TYPES) {
+			floodlightProvider.addOFMessageListener(type, this);
+		}
 	}
 
 }

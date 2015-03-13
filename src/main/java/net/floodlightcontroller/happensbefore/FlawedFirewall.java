@@ -22,6 +22,10 @@ import net.floodlightcontroller.core.module.IFloodlightService;
 import net.floodlightcontroller.packet.Ethernet;
 import net.floodlightcontroller.packet.IPv4;
 
+import org.jboss.netty.buffer.ChannelBuffer;
+import org.jboss.netty.buffer.ChannelBuffers;
+import org.jboss.netty.handler.codec.base64.Base64;
+import org.jboss.netty.util.CharsetUtil;
 import org.openflow.protocol.OFFlowMod;
 import org.openflow.protocol.OFMatch;
 import org.openflow.protocol.OFMessage;
@@ -64,6 +68,8 @@ public class FlawedFirewall implements IFloodlightModule, IOFMessageListener {
 	protected final static short IDLE_TIMEOUT = 0;
 	protected final static short HARD_TIMEOUT = 0;
 	
+	protected final static boolean INSERT_BARRIER = false;
+	
 	@Override
 	public String getName() {
 		return FlawedFirewall.class.getSimpleName();
@@ -80,7 +86,7 @@ public class FlawedFirewall implements IFloodlightModule, IOFMessageListener {
 		// TODO Auto-generated method stub
 		return false;
 	}
-
+	
 	@Override
 	public net.floodlightcontroller.core.IListener.Command receive(
 			IOFSwitch sw, OFMessage msg, FloodlightContext cntx) {
@@ -313,7 +319,7 @@ public class FlawedFirewall implements IFloodlightModule, IOFMessageListener {
 		
 		        // and write it out
 		        try {
-		            sw.write(flowMod, null);
+		            sw.write(flowMod, cntx);
 		        } catch (IOException e) {
 		            log.error("Failed to write {} to switch {}", new Object[]{ flowMod, sw }, e);
 		        }
@@ -351,7 +357,7 @@ public class FlawedFirewall implements IFloodlightModule, IOFMessageListener {
 			
 			        // and write it out
 			        try {
-			            sw.write(flowMod, null);
+			            sw.write(flowMod, cntx);
 			        } catch (IOException e) {
 			            log.error("Failed to write {} to switch {}", new Object[]{ flowMod, sw }, e);
 			        }
@@ -393,7 +399,7 @@ public class FlawedFirewall implements IFloodlightModule, IOFMessageListener {
 		
 		        // and write it out
 		        try {
-		            sw.write(flowMod, null);
+		            sw.write(flowMod, cntx);
 		        } catch (IOException e) {
 		            log.error("Failed to write {} to switch {}", new Object[]{ flowMod, sw }, e);
 		        }
