@@ -22,10 +22,6 @@ import net.floodlightcontroller.core.module.IFloodlightService;
 import net.floodlightcontroller.packet.Ethernet;
 import net.floodlightcontroller.packet.IPv4;
 
-import org.jboss.netty.buffer.ChannelBuffer;
-import org.jboss.netty.buffer.ChannelBuffers;
-import org.jboss.netty.handler.codec.base64.Base64;
-import org.jboss.netty.util.CharsetUtil;
 import org.openflow.protocol.OFBarrierRequest;
 import org.openflow.protocol.OFFlowMod;
 import org.openflow.protocol.OFMatch;
@@ -69,7 +65,7 @@ public class FlawedFirewall implements IFloodlightModule, IOFMessageListener {
 	protected final static short IDLE_TIMEOUT = 0;
 	protected final static short HARD_TIMEOUT = 0;
 	
-	protected final static boolean USE_BARRIER = false;
+	protected final static boolean USE_BARRIER = true;
 	
 	@Override
 	public String getName() {

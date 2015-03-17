@@ -1,14 +1,10 @@
 package net.floodlightcontroller.happensbefore;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collection;
-import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 
 import net.floodlightcontroller.core.FloodlightContext;
-import net.floodlightcontroller.core.FloodlightContextStore;
 import net.floodlightcontroller.core.IFloodlightProviderService;
 import net.floodlightcontroller.core.IOFMessageListener;
 import net.floodlightcontroller.core.IOFSwitch;
@@ -17,11 +13,6 @@ import net.floodlightcontroller.core.module.FloodlightModuleException;
 import net.floodlightcontroller.core.module.IFloodlightModule;
 import net.floodlightcontroller.core.module.IFloodlightService;
 
-import org.jboss.netty.buffer.ChannelBuffer;
-import org.jboss.netty.buffer.ChannelBuffers;
-import org.jboss.netty.handler.codec.base64.Base64;
-import org.jboss.netty.handler.codec.base64.Base64Dialect;
-import org.jboss.netty.util.CharsetUtil;
 import org.openflow.protocol.OFMessage;
 import org.openflow.protocol.OFType;
 import org.slf4j.Logger;
@@ -30,42 +21,26 @@ import org.slf4j.LoggerFactory;
 /**
  * Based on tutorial from here: http://docs.projectfloodlight.org/display/floodlightcontroller/How+to+Write+a+Module
  */
-public class HappensBefore implements IFloodlightModule, IOFMessageListener {
+public class HappensBeforePost extends HappensBeforeCommon implements IFloodlightModule, IOFMessageListener {
 	
 	protected IFloodlightProviderService floodlightProvider;
 	protected static Logger log;
-	protected static HashMap<Long, String> threadToLatestMsgIn;
-	
-	public final static String HAPPENSBEFORE_MSG_IN = "net.floodlightcontroller.happensbefore.HappensBefore.msgin";
-	
-	public final static List<OFType> IN_TYPES = Arrays.asList(OFType.PACKET_IN, OFType.FLOW_REMOVED);
-	public final static List<OFType> OUT_TYPES = Arrays.asList(OFType.PACKET_OUT, OFType.FLOW_MOD, OFType.BARRIER_REQUEST);
-	
-	public static final FloodlightContextStore<String> hbStore = new FloodlightContextStore<String>();
 	
 	@Override
 	public String getName() {
-		return HappensBefore.class.getSimpleName();
+		return HappensBeforePost.class.getSimpleName();
 	}
 
 	@Override
 	public boolean isCallbackOrderingPrereq(OFType type, String name) {
 		// "name" should be called BEFORE this
-		return OUT_TYPES.contains(type);
+		return !name.equals(getName()) && (OUT_TYPES.contains(type) || name.contains("HappensBeforePre"));
 	}
 
 	@Override
 	public boolean isCallbackOrderingPostreq(OFType type, String name) {
 		// "name" should be called AFTER this
-		return IN_TYPES.contains(type);
-	}
-	
-	private String formatMsg(OFMessage msg, long swid){
-		ChannelBuffer buf = ChannelBuffers.dynamicBuffer();
-		msg.writeTo(buf);
-		ChannelBuffer encoded = Base64.encode(buf);
-		String b64_msg = encoded.toString(CharsetUtil.UTF_8).replace("\n", "");
-		return Long.toString(swid)+":"+b64_msg;
+		return false;
 	}
 	
 	@Override
@@ -73,17 +48,6 @@ public class HappensBefore implements IFloodlightModule, IOFMessageListener {
 			IOFSwitch sw, OFMessage msg, FloodlightContext cntx) {
 		
 		String currentMsgString = this.formatMsg(msg, sw.getId());
-		
-		if (IN_TYPES.contains(msg.getType())){
-			hbStore.put(cntx, HAPPENSBEFORE_MSG_IN, currentMsgString);
-			System.out.format("net.floodlightcontroller.happensbefore.HappensBefore-MessageIn-[%s]%n", currentMsgString);
-			System.out.flush();
-			
-			Thread t = Thread.currentThread();
-			long workerId = t.getId();
-			threadToLatestMsgIn.put(workerId, currentMsgString);
-			
-		}
 		
 		if (OUT_TYPES.contains(msg.getType())) {
 			String previousMsgString = hbStore.get(cntx, HAPPENSBEFORE_MSG_IN);
@@ -101,7 +65,7 @@ public class HappensBefore implements IFloodlightModule, IOFMessageListener {
 					if (e.getClassName().equals("net.floodlightcontroller.core.internal.Controller") &&
 							e.getMethodName().equals("handleMessage")){
 						// This is a reactive message out.
-						previousMsgString = threadToLatestMsgIn.get(workerId);
+						previousMsgString = threadToLatestMsgIn.get(workerId); //TODO JM: hack, refactor
 						found = true;
 						break;
 					}
@@ -142,17 +106,13 @@ public class HappensBefore implements IFloodlightModule, IOFMessageListener {
 	public void init(FloodlightModuleContext context)
 			throws FloodlightModuleException {
 		floodlightProvider = context.getServiceImpl(IFloodlightProviderService.class);
-	    log = LoggerFactory.getLogger(HappensBefore.class);
-	    log.debug("HappensBefore logger loading.");
-	    threadToLatestMsgIn = new HashMap<Long, String>();
+	    log = LoggerFactory.getLogger(HappensBeforePost.class);
+	    log.debug("HappensBeforePost logger loading.");
 	}
 
 	@Override
 	public void startUp(FloodlightModuleContext context)
 			throws FloodlightModuleException {
-		for (OFType type : IN_TYPES) {
-			floodlightProvider.addOFMessageListener(type, this);
-		}
 		for (OFType type : OUT_TYPES) {
 			floodlightProvider.addOFMessageListener(type, this);
 		}
