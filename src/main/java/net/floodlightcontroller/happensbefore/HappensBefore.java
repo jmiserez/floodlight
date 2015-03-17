@@ -3,9 +3,9 @@ package net.floodlightcontroller.happensbefore;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 import net.floodlightcontroller.core.FloodlightContext;
 import net.floodlightcontroller.core.FloodlightContextStore;
@@ -34,7 +34,7 @@ public class HappensBefore implements IFloodlightModule, IOFMessageListener {
 	protected IFloodlightProviderService floodlightProvider;
 	protected static Logger log;
 	
-	protected static HashMap<Long, String> threadToLatestMsgIn = new HashMap<Long, String>();
+	protected static ConcurrentHashMap<Long, String> threadToLatestMsgIn = new ConcurrentHashMap<Long, String>();
 	protected static final String HAPPENSBEFORE_MSG_IN = "net.floodlightcontroller.happensbefore.HappensBefore.msgin";
 	protected static final List<OFType> IN_TYPES = Arrays.asList(OFType.PACKET_IN, OFType.FLOW_REMOVED);
 	protected static final List<OFType> OUT_TYPES = Arrays.asList(OFType.PACKET_OUT, OFType.FLOW_MOD, OFType.BARRIER_REQUEST);
