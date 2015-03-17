@@ -26,7 +26,6 @@ net.floodlightcontroller.loadbalancer.LoadBalancer
 org.sdnplatform.sync.internal.SyncManager
 org.sdnplatform.sync.internal.SyncTorture
 net.floodlightcontroller.devicemanager.internal.DefaultEntityClassifier
-net.floodlightcontroller.happensbefore.HappensBeforePre
-net.floodlightcontroller.happensbefore.HappensBeforePost
+net.floodlightcontroller.happensbefore.HappensBefore
 net.floodlightcontroller.happensbefore.FlawedFirewall
 
