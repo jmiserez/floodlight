@@ -36,10 +36,15 @@ public class HappensBefore implements IFloodlightModule, IOFMessageListener {
 	
 	protected static ConcurrentHashMap<Long, String> threadToLatestMsgIn = new ConcurrentHashMap<Long, String>();
 	protected static final String HAPPENSBEFORE_MSG_IN = "net.floodlightcontroller.happensbefore.HappensBefore.msgin";
-	protected static final List<OFType> IN_TYPES = Arrays.asList(OFType.PACKET_IN, OFType.FLOW_REMOVED);
+	protected static final List<OFType> IN_TYPES = Arrays.asList(OFType.PACKET_IN, OFType.FLOW_REMOVED, OFType.BARRIER_REPLY, OFType.PORT_MOD);
 	protected static final List<OFType> OUT_TYPES = Arrays.asList(OFType.PACKET_OUT, OFType.FLOW_MOD, OFType.BARRIER_REQUEST);
 	protected static final FloodlightContextStore<String> hbStore = new FloodlightContextStore<String>();
 
+	
+	/*
+	 * NOTE: if somehow the msg object is changed after the write was called, it may be possible that this representation is
+	 *       not the same as the one that is actually sent out, as Floodlight groups messages before sending them.
+	 */
 	protected String formatMsg(OFMessage msg, long swid) {
 		ChannelBuffer buf = ChannelBuffers.dynamicBuffer();
 		msg.writeTo(buf);
@@ -56,20 +61,30 @@ public class HappensBefore implements IFloodlightModule, IOFMessageListener {
 	@Override
 	public boolean isCallbackOrderingPrereq(OFType type, String name) {
 		// "name" should be called BEFORE this
+		if (!name.equals(getName())){
+			if (OUT_TYPES.contains(type)){
+				return true;
+			}
+		}
 		return false;
 	}
 
 	@Override
 	public boolean isCallbackOrderingPostreq(OFType type, String name) {
 		// "name" should be called AFTER this
-		return !name.equals(getName()) && (IN_TYPES.contains(type) ||name.contains("HappensBeforePost"));
+		if (!name.equals(getName())){
+			if (IN_TYPES.contains(type)){
+				return true;
+			}
+		}
+		return false;
 	}
 	
 	@Override
 	public net.floodlightcontroller.core.IListener.Command receive(
 			IOFSwitch sw, OFMessage msg, FloodlightContext cntx) {
 		
-		String currentMsgString = this.formatMsg(msg, sw.getId());
+ 		String currentMsgString = this.formatMsg(msg, sw.getId());
 		
 		if (IN_TYPES.contains(msg.getType())){
 			hbStore.put(cntx, HAPPENSBEFORE_MSG_IN, currentMsgString);
@@ -84,7 +99,7 @@ public class HappensBefore implements IFloodlightModule, IOFMessageListener {
 		if (OUT_TYPES.contains(msg.getType())) {
 			String previousMsgString = hbStore.get(cntx, HAPPENSBEFORE_MSG_IN);
 			if(previousMsgString == null){
-				log.error("Floodlight context not passed by previous module. Will analyze call stack instead: "+msg.getType().toString());
+//				log.debug("Floodlight context not passed by previous module. Will analyze call stack instead: "+msg.getType().toString());
 				
 				// Get information by other means. We know that Floodlight uses only 1 single thread per switch connection.
 				// So in case a module does not pass a context, we will just use the latest message in, if there is a Controller.handleMessage in the stack trace

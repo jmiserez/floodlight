@@ -65,7 +65,7 @@ public class FlawedFirewall implements IFloodlightModule, IOFMessageListener {
 	protected final static short IDLE_TIMEOUT = 0;
 	protected final static short HARD_TIMEOUT = 0;
 	
-	protected final static boolean USE_BARRIER = true;
+	protected final static boolean USE_BARRIER = false;
 	
 	@Override
 	public String getName() {
@@ -169,7 +169,7 @@ public class FlawedFirewall implements IFloodlightModule, IOFMessageListener {
         				switchId,
         				HexString.toHexString(dstMacHash));
         	} else {
-        		log.info("For switch {}: Failed port lookup for destination MAC {}",
+        		log.info("For switch {}: Failed port lookup for destination MAC {}. Warning: outPort in reverse flow mod will be wrong.",
         				switchId,
         				HexString.toHexString(dstMacHash));
         	}
@@ -258,7 +258,6 @@ public class FlawedFirewall implements IFloodlightModule, IOFMessageListener {
 					}
 	        	}
 		        //now install flow in first direction
-		        
 		        OFMatch match = new OFMatch();
 		        match.loadFromPacket(pi.getPacketData(), pi.getInPort());
 		        
@@ -271,12 +270,11 @@ public class FlawedFirewall implements IFloodlightModule, IOFMessageListener {
 		        
 		        match.setWildcards(((Integer)sw.getAttribute(IOFSwitch.PROP_FASTWILDCARDS)).intValue()
 		                & ~OFMatch.OFPFW_IN_PORT
-//		                & ~OFMatch.OFPFW_DL_SRC & ~OFMatch.OFPFW_DL_DST
+		                & ~OFMatch.OFPFW_DL_SRC & ~OFMatch.OFPFW_DL_DST
 		                & ~OFMatch.OFPFW_NW_SRC_MASK & ~OFMatch.OFPFW_NW_DST_MASK);
 		        
 		        short command = OFFlowMod.OFPFC_ADD;
 		        long cookie = 0;
-		        short priority = 20;
 		        int bufferId = OFPacketOut.BUFFER_ID_NONE;
 		
 		        OFFlowMod flowMod = (OFFlowMod) floodlightProvider.getOFMessageFactory().getMessage(OFType.FLOW_MOD);
@@ -285,9 +283,10 @@ public class FlawedFirewall implements IFloodlightModule, IOFMessageListener {
 		        flowMod.setCommand(command);
 		        flowMod.setIdleTimeout(FlawedFirewall.IDLE_TIMEOUT);
 		        flowMod.setHardTimeout(FlawedFirewall.HARD_TIMEOUT);
+		        short priority = 16;
 		        flowMod.setPriority(priority);
 		        flowMod.setBufferId(bufferId);
-		        flowMod.setOutPort((command == OFFlowMod.OFPFC_DELETE) ? outPort : OFPort.OFPP_NONE.getValue());
+		        flowMod.setOutPort(OFPort.OFPP_NONE.getValue());
 		        flowMod.setFlags((command == OFFlowMod.OFPFC_DELETE) ? 0 : (short) (1 << 0)); // OFPFF_SEND_FLOW_REM
 		
 		        flowMod.setActions(Arrays.asList((OFAction) new OFActionOutput(outPort, (short) 0xffff)));
@@ -307,15 +306,18 @@ public class FlawedFirewall implements IFloodlightModule, IOFMessageListener {
 			        // now install the appropriate inverse flow
 			        
 		        	OFMatch reverseMatch = match.clone();
+		        	
+		        	reverseMatch.setWildcards(((Integer)sw.getAttribute(IOFSwitch.PROP_FASTWILDCARDS)).intValue()
+//			                & ~OFMatch.OFPFW_IN_PORT //we might not know the in port here, so wildcard it
+			                & ~OFMatch.OFPFW_DL_SRC & ~OFMatch.OFPFW_DL_DST
+			                & ~OFMatch.OFPFW_NW_SRC_MASK & ~OFMatch.OFPFW_NW_DST_MASK);
+		        	
 		        	reverseMatch.setDataLayerSource(match.getDataLayerDestination())
 			          .setDataLayerDestination(match.getDataLayerSource())
 			          .setNetworkSource(match.getNetworkDestination())
 			          .setNetworkDestination(match.getNetworkSource())
 			          .setTransportSource(match.getTransportDestination())
-			          .setTransportDestination(match.getTransportSource())
-			          .setInputPort(outPort);
-			        
-			        outPort = inPort;
+			          .setTransportDestination(match.getTransportSource());
 			        
 			        flowMod = (OFFlowMod) floodlightProvider.getOFMessageFactory().getMessage(OFType.FLOW_MOD);
 			        flowMod.setMatch(reverseMatch);
@@ -323,15 +325,16 @@ public class FlawedFirewall implements IFloodlightModule, IOFMessageListener {
 			        flowMod.setCommand(command);
 			        flowMod.setIdleTimeout(FlawedFirewall.IDLE_TIMEOUT);
 			        flowMod.setHardTimeout(FlawedFirewall.HARD_TIMEOUT);
+			        priority = 17;
 			        flowMod.setPriority(priority);
 			        flowMod.setBufferId(bufferId);
-			        flowMod.setOutPort((command == OFFlowMod.OFPFC_DELETE) ? outPort : OFPort.OFPP_NONE.getValue());
+			        flowMod.setOutPort(OFPort.OFPP_NONE.getValue());
 			        flowMod.setFlags((command == OFFlowMod.OFPFC_DELETE) ? 0 : (short) (1 << 0)); // OFPFF_SEND_FLOW_REM
-			
-			        flowMod.setActions(Arrays.asList((OFAction) new OFActionOutput(outPort, (short) 0xffff)));
+			        
+			        flowMod.setActions(Arrays.asList((OFAction) new OFActionOutput(inPort, (short) 0xffff)));
 			        flowMod.setLength((short) (OFFlowMod.MINIMUM_LENGTH + OFActionOutput.MINIMUM_LENGTH));
 			
-			        log.info("{} {} flow mod {}",
+			        log.info("{} {} reverse flow mod {}",
 			                      new Object[]{ sw, (command == OFFlowMod.OFPFC_DELETE) ? "deleting" : "adding", flowMod });
 			
 			        // and write it out
@@ -344,6 +347,9 @@ public class FlawedFirewall implements IFloodlightModule, IOFMessageListener {
 	        }
 	        if (FlawedFirewall.USE_BARRIER){
 	            OFBarrierRequest barrier = (OFBarrierRequest) floodlightProvider.getOFMessageFactory().getMessage(OFType.BARRIER_REQUEST);
+	            
+	            log.info("{} {} barrier {}",
+	                      new Object[]{ sw, "inserting", barrier });
 	            try {
 		        	sw.write(barrier, cntx);
 		        } catch (IOException e) {
@@ -360,10 +366,12 @@ public class FlawedFirewall implements IFloodlightModule, IOFMessageListener {
 	        	po.setLength(U16.t(OFPacketOut.MINIMUM_LENGTH
 	        			+ po.getActionsLength()));
 	        }
+	        log.info("{} {} packet out {}",
+                    new Object[]{ sw, "sending", "(omitted)" });
 	        try {
 	        	sw.write(po, cntx);
 	        } catch (IOException e) {
-	        	log.error("Failure writing barrier", e);
+	        	log.error("Failure writing packet out", e);
 	        }
         } else {
         	if(FlawedFirewall.ENABLE_FIREWALL && FlawedFirewall.USE_FLOWS){
@@ -372,12 +380,11 @@ public class FlawedFirewall implements IFloodlightModule, IOFMessageListener {
 		        
 		        match.setWildcards(((Integer)sw.getAttribute(IOFSwitch.PROP_FASTWILDCARDS)).intValue()
 		                & ~OFMatch.OFPFW_IN_PORT
-//		                & ~OFMatch.OFPFW_DL_SRC & ~OFMatch.OFPFW_DL_DST
+		                & ~OFMatch.OFPFW_DL_SRC & ~OFMatch.OFPFW_DL_DST
 		                & ~OFMatch.OFPFW_NW_SRC_MASK & ~OFMatch.OFPFW_NW_DST_MASK);
 		        
 		        short command = OFFlowMod.OFPFC_ADD;
 		        long cookie = 0;
-		        short priority = 15;
 		        int bufferId = OFPacketOut.BUFFER_ID_NONE;
 		
 		        OFFlowMod flowMod = (OFFlowMod) floodlightProvider.getOFMessageFactory().getMessage(OFType.FLOW_MOD);
@@ -386,6 +393,7 @@ public class FlawedFirewall implements IFloodlightModule, IOFMessageListener {
 		        flowMod.setCommand(command);
 		        flowMod.setIdleTimeout(FlawedFirewall.IDLE_TIMEOUT);
 		        flowMod.setHardTimeout(FlawedFirewall.HARD_TIMEOUT);
+		        short priority = 15;
 		        flowMod.setPriority(priority);
 		        flowMod.setBufferId(bufferId);
 		        flowMod.setOutPort((command == OFFlowMod.OFPFC_DELETE) ? outPort : OFPort.OFPP_NONE.getValue());
