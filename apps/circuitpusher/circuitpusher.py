@@ -26,8 +26,9 @@ Notes:
     target) from the two hosts.
  3. The current supported command syntax format is:
     a) circuitpusher.py --controller={IP}:{rest port} --type ip --src {IP} --dst {IP} --add --name {circuit-name}
+       circuitpusher.py --controller={IP}:{rest port} --type mac --src {MAC} --dst {MAC} --add --name {circuit-name}
  
-       adds a new circuit between src and dst devices Currently ip circuit is supported. ARP is automatically supported.
+       adds a new circuit between src and dst devices Currently ip and mac circuit is supported. ARP is automatically supported.
     
        Currently a simple circuit record storage is provided in a text file circuits.json in the working directory.
        The file is not protected and does not clean itself between controller restarts.  The file is needed for correct operation
@@ -51,13 +52,14 @@ import time
 # parse circuit options.  Currently supports add and delete actions.
 # Syntax:
 #   circuitpusher --controller {IP:REST_PORT} --add --name {CIRCUIT_NAME} --type ip --src {IP} --dst {IP} 
+#   circuitpusher --controller {IP:REST_PORT} --add --name {CIRCUIT_NAME} --type mac --src {MAC} --dst {MAC} 
 #   circuitpusher --controller {IP:REST_PORT} --delete --name {CIRCUIT_NAME}
 
 parser = argparse.ArgumentParser(description='Circuit Pusher')
 parser.add_argument('--controller', dest='controllerRestIp', action='store', default='localhost:8080', help='controller IP:RESTport, e.g., localhost:8080 or A.B.C.D:8080')
 parser.add_argument('--add', dest='action', action='store_const', const='add', default='add', help='action: add, delete')
 parser.add_argument('--delete', dest='action', action='store_const', const='delete', default='add', help='action: add, delete')
-parser.add_argument('--type', dest='type', action='store', default='ip', help='valid types: ip')
+parser.add_argument('--type', dest='type', action='store', default='ip', help='valid types: ip, mac')
 parser.add_argument('--src', dest='srcAddress', action='store', default='0.0.0.0', help='source address: if type=ip, A.B.C.D')
 parser.add_argument('--dst', dest='dstAddress', action='store', default='0.0.0.0', help='destination address: if type=ip, A.B.C.D')
 parser.add_argument('--name', dest='circuitName', action='store', default='circuit-1', help='name for circuit, e.g., circuit-1')
@@ -86,11 +88,26 @@ if args.action=='add':
             sys.exit()
         else:
             circuitExists = False
+      
+          
+    if args.type == 'ip':
+      deviceType = 'ipv4'
+    elif args.type == 'mac':
+      deviceType = 'mac'
+      if len(args.srcAddress) != 17 or len(args.dstAddress) != 17:
+        print "ERROR : MAC address %s not in correct format. Use format 12:34:56:78:90:12." % args.srcAddress
+        sys.exit()
+      if len(args.srcAddress) != 17 or len(args.dstAddress) != 17:
+        print "ERROR : MAC address %s not in correct format. Use format 12:34:56:78:90:12." % args.dstAddress
+        sys.exit()
+    else:
+      print "ERROR : Type must be ip or mac."
+      sys.exit()
     
     # retrieve source and destination device attachment points
     # using DeviceManager rest API 
     
-    command = "curl -s http://%s/wm/device/?ipv4=%s" % (args.controllerRestIp, args.srcAddress)
+    command = "curl -s http://%s/wm/device/?%s=%s" % (args.controllerRestIp, deviceType, args.srcAddress)
     result = os.popen(command).read()
     parsedResult = json.loads(result)
     print command+"\n"
@@ -103,7 +120,7 @@ if args.action=='add':
 
     sourcePort = parsedResult[0]['attachmentPoint'][0]['port']
     
-    command = "curl -s http://%s/wm/device/?ipv4=%s" % (args.controllerRestIp, args.dstAddress)
+    command = "curl -s http://%s/wm/device/?%s=%s" % (args.controllerRestIp, deviceType, args.dstAddress)
     result = os.popen(command).read()
     parsedResult = json.loads(result)
     print command+"\n"
@@ -151,23 +168,35 @@ if args.action=='add':
             # encode each flow entry's name with both switch dpid, user
             # specified name, and flow type (f: forward, r: reverse, farp/rarp: arp)
 
-            command = "curl -s -d '{\"switch\": \"%s\", \"name\":\"%s\", \"src-ip\":\"%s\", \"dst-ip\":\"%s\", \"ether-type\":\"%s\", \"cookie\":\"0\", \"priority\":\"32768\", \"ingress-port\":\"%s\",\"active\":\"true\", \"actions\":\"output=%s\"}' http://%s/wm/staticflowentrypusher/json" % (ap1Dpid, ap1Dpid+"."+args.circuitName+".f", args.srcAddress, args.dstAddress, "0x800", ap1Port, ap2Port, controllerRestIp)
-            result = os.popen(command).read()
-            print command
+            if args.type == 'ip':
+
+              command = "curl -s -d '{\"switch\": \"%s\", \"name\":\"%s\", \"src-ip\":\"%s\", \"dst-ip\":\"%s\", \"ether-type\":\"%s\", \"cookie\":\"0\", \"priority\":\"32768\", \"ingress-port\":\"%s\",\"active\":\"true\", \"actions\":\"output=%s\"}' http://%s/wm/staticflowentrypusher/json" % (ap1Dpid, ap1Dpid+"."+args.circuitName+".f", args.srcAddress, args.dstAddress, "0x800", ap1Port, ap2Port, controllerRestIp)
+              result = os.popen(command).read()
+              print command
+  
+              command = "curl -s -d '{\"switch\": \"%s\", \"name\":\"%s\", \"src-ip\":\"%s\", \"dst-ip\":\"%s\", \"ether-type\":\"%s\", \"cookie\":\"0\", \"priority\":\"32768\", \"ingress-port\":\"%s\",\"active\":\"true\", \"actions\":\"output=%s\"}' http://%s/wm/staticflowentrypusher/json" % (ap1Dpid, ap1Dpid+"."+args.circuitName+".r", args.dstAddress, args.srcAddress, "0x800", ap2Port, ap1Port, controllerRestIp)
+              result = os.popen(command).read()
+              print command
+  
+            elif args.type == 'mac':
+              
+              command = "curl -s -d '{\"switch\": \"%s\", \"name\":\"%s\", \"src-mac\":\"%s\", \"dst-mac\":\"%s\", \"cookie\":\"0\", \"priority\":\"32768\", \"ingress-port\":\"%s\",\"active\":\"true\", \"actions\":\"output=%s\"}' http://%s/wm/staticflowentrypusher/json" % (ap1Dpid, ap1Dpid+"."+args.circuitName+".f", args.srcAddress, args.dstAddress, ap1Port, ap2Port, controllerRestIp)
+              result = os.popen(command).read()
+              print command
+  
+              command = "curl -s -d '{\"switch\": \"%s\", \"name\":\"%s\", \"src-mac\":\"%s\", \"dst-mac\":\"%s\", \"cookie\":\"0\", \"priority\":\"32768\", \"ingress-port\":\"%s\",\"active\":\"true\", \"actions\":\"output=%s\"}' http://%s/wm/staticflowentrypusher/json" % (ap1Dpid, ap1Dpid+"."+args.circuitName+".r", args.dstAddress, args.srcAddress, ap2Port, ap1Port, controllerRestIp)
+              result = os.popen(command).read()
+              print command
 
             command = "curl -s -d '{\"switch\": \"%s\", \"name\":\"%s\", \"ether-type\":\"%s\", \"cookie\":\"0\", \"priority\":\"32768\", \"ingress-port\":\"%s\",\"active\":\"true\", \"actions\":\"output=%s\"}' http://%s/wm/staticflowentrypusher/json" % (ap1Dpid, ap1Dpid+"."+args.circuitName+".farp", "0x806", ap1Port, ap2Port, controllerRestIp)
-            result = os.popen(command).read()
-            print command
-
-
-            command = "curl -s -d '{\"switch\": \"%s\", \"name\":\"%s\", \"src-ip\":\"%s\", \"dst-ip\":\"%s\", \"ether-type\":\"%s\", \"cookie\":\"0\", \"priority\":\"32768\", \"ingress-port\":\"%s\",\"active\":\"true\", \"actions\":\"output=%s\"}' http://%s/wm/staticflowentrypusher/json" % (ap1Dpid, ap1Dpid+"."+args.circuitName+".r", args.dstAddress, args.srcAddress, "0x800", ap2Port, ap1Port, controllerRestIp)
             result = os.popen(command).read()
             print command
 
             command = "curl -s -d '{\"switch\": \"%s\", \"name\":\"%s\", \"ether-type\":\"%s\", \"cookie\":\"0\", \"priority\":\"32768\", \"ingress-port\":\"%s\",\"active\":\"true\", \"actions\":\"output=%s\"}' http://%s/wm/staticflowentrypusher/json" % (ap1Dpid, ap1Dpid+"."+args.circuitName+".rarp", "0x806", ap2Port, ap1Port, controllerRestIp)
             result = os.popen(command).read()
             print command
-            
+  
+              
             # store created circuit attributes in local ./circuits.json
             datetime = time.asctime()
             circuitParams = {'name':args.circuitName, 'Dpid':ap1Dpid, 'inPort':ap1Port, 'outPort':ap2Port, 'datetime':datetime}
