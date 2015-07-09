@@ -40,17 +40,24 @@ public class HappensBefore implements IFloodlightModule, IOFMessageListener {
 	protected static final List<OFType> OUT_TYPES = Arrays.asList(OFType.PACKET_OUT, OFType.FLOW_MOD, OFType.BARRIER_REQUEST);
 	protected static final FloodlightContextStore<String> hbStore = new FloodlightContextStore<String>();
 
+	private String getDpidString(IOFSwitch sw){
+		try{
+			return Long.toString(sw.getId()); // will throw RuntimeException if it is not yet assigned.
+		} catch (Exception e) {
+			return "?";
+		}
+	}
 	
 	/*
 	 * NOTE: if somehow the msg object is changed after the write was called, it may be possible that this representation is
 	 *       not the same as the one that is actually sent out, as Floodlight groups messages before sending them.
 	 */
-	protected String formatMsg(OFMessage msg, long swid) {
+	protected String formatMsg(OFMessage msg, String swid) {
 		ChannelBuffer buf = ChannelBuffers.dynamicBuffer();
 		msg.writeTo(buf);
 		ChannelBuffer encoded = Base64.encode(buf);
 		String b64_msg = encoded.toString(CharsetUtil.UTF_8).replace("\n", "");
-		return Long.toString(swid)+":"+b64_msg;
+		return swid+":"+b64_msg;
 	}
 	
 	@Override
@@ -84,7 +91,7 @@ public class HappensBefore implements IFloodlightModule, IOFMessageListener {
 	public net.floodlightcontroller.core.IListener.Command receive(
 			IOFSwitch sw, OFMessage msg, FloodlightContext cntx) {
 		
- 		String currentMsgString = this.formatMsg(msg, sw.getId());
+ 		String currentMsgString = this.formatMsg(msg, this.getDpidString(sw));
 		
 		if (IN_TYPES.contains(msg.getType())){
 			hbStore.put(cntx, HAPPENSBEFORE_MSG_IN, currentMsgString);
