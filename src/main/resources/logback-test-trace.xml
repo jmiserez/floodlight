@@ -15,10 +15,11 @@
   <logger name="net.bigdb" level="INFO"/>
   <logger name="net.floodlightcontroller" level="INFO"/>
   <logger name="org.sdnplatform" level="INFO"/>
+  <logger name="net.floodlightcontroller.learningswitch" level="TRACE"/>  
+  <logger name="net.floodlightcontroller.happensbefore" level="TRACE"/>
   <!--
   <logger name="net.floodlightcontroller.devicemanager" level="TRACE"/>
   <logger name="net.floodlightcontroller.staticflowentry" level="TRACE"/>
-  <logger name="net.floodlightcontroller.happensbefore" level="TRACE"/>
   <logger name="net.floodlightcontroller.firewall" level="TRACE"/>
   <logger name="net.floodlightcontroller.loadbalancer" level="TRACE"/>
   -->
