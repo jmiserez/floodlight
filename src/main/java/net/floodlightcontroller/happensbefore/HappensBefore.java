@@ -96,6 +96,7 @@ public class HappensBefore implements IFloodlightModule, IOFMessageListener {
 		if (IN_TYPES.contains(msg.getType())){
 			hbStore.put(cntx, HAPPENSBEFORE_MSG_IN, currentMsgString);
 			System.out.format("net.floodlightcontroller.happensbefore.HappensBefore-MessageIn-[%s]%n", currentMsgString);
+//			log.debug(msg.toString());
 			System.out.flush();
 			
 			Thread t = Thread.currentThread();
@@ -104,6 +105,7 @@ public class HappensBefore implements IFloodlightModule, IOFMessageListener {
 			
 		}
 		if (OUT_TYPES.contains(msg.getType())) {
+//			log.debug(msg.toString());
 			String previousMsgString = hbStore.get(cntx, HAPPENSBEFORE_MSG_IN);
 			if(previousMsgString == null){
 //				log.debug("Floodlight context not passed by previous module. Will analyze call stack instead: "+msg.getType().toString());
