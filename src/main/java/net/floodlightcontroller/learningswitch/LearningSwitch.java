@@ -199,7 +199,7 @@ public class LearningSwitch
      * @param outPort The switch port to output it to.
      */
     private void writeFlowMod(IOFSwitch sw, short command, int bufferId,
-            OFMatch match, short outPort, FloodlightContext cntx) {
+            OFMatch match, short outPort) {
         // from openflow 1.0 spec - need to set these on a struct ofp_flow_mod:
         // struct ofp_flow_mod {
         //    struct ofp_header header;
@@ -254,7 +254,7 @@ public class LearningSwitch
 
         // and write it out
         try {
-            sw.write(flowMod, cntx);
+            sw.write(flowMod, null);
         } catch (IOException e) {
             log.error("Failed to write {} to switch {}", new Object[]{ flowMod, sw }, e);
         }
@@ -270,7 +270,7 @@ public class LearningSwitch
      * @param pi        packet-in
      * @param outport   output port
      */
-    private void pushPacket(IOFSwitch sw, OFMatch match, OFPacketIn pi, short outport, FloodlightContext cntx) {
+    private void pushPacket(IOFSwitch sw, OFMatch match, OFPacketIn pi, short outport) {
         if (pi == null) {
             return;
         }
@@ -330,7 +330,7 @@ public class LearningSwitch
 
         try {
             counterStore.updatePktOutFMCounterStoreLocal(sw, po);
-            sw.write(po, cntx);
+            sw.write(po, null);
         } catch (IOException e) {
             log.error("Failure writing packet out", e);
         }
@@ -443,8 +443,8 @@ public class LearningSwitch
                     & ~OFMatch.OFPFW_DL_VLAN & ~OFMatch.OFPFW_DL_SRC & ~OFMatch.OFPFW_DL_DST
                     & ~OFMatch.OFPFW_NW_SRC_MASK & ~OFMatch.OFPFW_NW_DST_MASK);
             // We write FlowMods with Buffer ID none then explicitly PacketOut the buffered packet
-            this.pushPacket(sw, match, pi, outPort, cntx);
-            this.writeFlowMod(sw, OFFlowMod.OFPFC_ADD, OFPacketOut.BUFFER_ID_NONE, match, outPort, cntx);
+            this.pushPacket(sw, match, pi, outPort);
+            this.writeFlowMod(sw, OFFlowMod.OFPFC_ADD, OFPacketOut.BUFFER_ID_NONE, match, outPort);
             if (LEARNING_SWITCH_REVERSE_FLOW) {
                 this.writeFlowMod(sw, OFFlowMod.OFPFC_ADD, -1, match.clone()
                     .setDataLayerSource(match.getDataLayerDestination())
@@ -454,8 +454,7 @@ public class LearningSwitch
                     .setTransportSource(match.getTransportDestination())
                     .setTransportDestination(match.getTransportSource())
                     .setInputPort(outPort),
-                    match.getInputPort(),
-                    cntx);
+                    match.getInputPort());
             }
         }
         return Command.CONTINUE;
