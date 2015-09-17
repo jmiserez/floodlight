@@ -85,7 +85,7 @@ if args.action=='add':
         data = json.loads(line)
         if data['name']==(args.circuitName):
             print "Circuit %s exists already. Use new name to create." % args.circuitName
-            sys.exit()
+            sys.exit(1)
         else:
             circuitExists = False
       
@@ -96,13 +96,13 @@ if args.action=='add':
       deviceType = 'mac'
       if len(args.srcAddress) != 17 or len(args.dstAddress) != 17:
         print "ERROR : MAC address %s not in correct format. Use format 12:34:56:78:90:12." % args.srcAddress
-        sys.exit()
+        sys.exit(1)
       if len(args.srcAddress) != 17 or len(args.dstAddress) != 17:
         print "ERROR : MAC address %s not in correct format. Use format 12:34:56:78:90:12." % args.dstAddress
-        sys.exit()
+        sys.exit(1)
     else:
       print "ERROR : Type must be ip or mac."
-      sys.exit()
+      sys.exit(1)
     
     # retrieve source and destination device attachment points
     # using DeviceManager rest API 
@@ -110,26 +110,26 @@ if args.action=='add':
     command = "curl -s http://%s/wm/device/?%s=%s" % (args.controllerRestIp, deviceType, args.srcAddress)
     result = os.popen(command).read()
     parsedResult = json.loads(result)
-    print command+"\n"
+    print command + "\n" + result + "\n"
     
     try:
     	sourceSwitch = parsedResult[0]['attachmentPoint'][0]['switchDPID']
     except IndexError:
-	print "ERROR : the specified end point (%s) must already been known to the controller (i.e., already have sent packets on the network, easy way to assure this is to do a ping (to any target) from the two hosts." % (args.srcAddress)
-	sys.exit()
+    	print "ERROR : the specified end point (%s) must already been known to the controller (i.e., already have sent packets on the network, easy way to assure this is to do a ping (to any target) from the two hosts." % (args.srcAddress)
+    	sys.exit(1)
 
     sourcePort = parsedResult[0]['attachmentPoint'][0]['port']
     
     command = "curl -s http://%s/wm/device/?%s=%s" % (args.controllerRestIp, deviceType, args.dstAddress)
     result = os.popen(command).read()
     parsedResult = json.loads(result)
-    print command+"\n"
+    print command + "\n" + result + "\n"
 
     try:
-        destSwitch = parsedResult[0]['attachmentPoint'][0]['switchDPID']
+      destSwitch = parsedResult[0]['attachmentPoint'][0]['switchDPID']
     except IndexError:
-        print "ERROR : the specified end point (%s) must already been known to the controller (i.e., already have sent packets on the network, easy way to assure this is to do a ping (to any target) from the two hosts." % (args.dstAddress) 
-        sys.exit()
+      print "ERROR : the specified end point (%s) must already been known to the controller (i.e., already have sent packets on the network, easy way to assure this is to do a ping (to any target) from the two hosts." % (args.dstAddress) 
+      sys.exit(1)
  
     destPort = parsedResult[0]['attachmentPoint'][0]['port']
     
@@ -145,8 +145,7 @@ if args.action=='add':
     result = os.popen(command).read()
     parsedResult = json.loads(result)
 
-    print command+"\n"
-    print result+"\n"
+    print command + "\n" + result + "\n"
 
     for i in range(len(parsedResult)):
         if i % 2 == 0:
@@ -172,29 +171,29 @@ if args.action=='add':
 
               command = "curl -s -d '{\"switch\": \"%s\", \"name\":\"%s\", \"src-ip\":\"%s\", \"dst-ip\":\"%s\", \"ether-type\":\"%s\", \"cookie\":\"0\", \"priority\":\"32768\", \"ingress-port\":\"%s\",\"active\":\"true\", \"actions\":\"output=%s\"}' http://%s/wm/staticflowentrypusher/json" % (ap1Dpid, ap1Dpid+"."+args.circuitName+".f", args.srcAddress, args.dstAddress, "0x800", ap1Port, ap2Port, controllerRestIp)
               result = os.popen(command).read()
-              print command
+              print command + "\n" + result + "\n"
   
               command = "curl -s -d '{\"switch\": \"%s\", \"name\":\"%s\", \"src-ip\":\"%s\", \"dst-ip\":\"%s\", \"ether-type\":\"%s\", \"cookie\":\"0\", \"priority\":\"32768\", \"ingress-port\":\"%s\",\"active\":\"true\", \"actions\":\"output=%s\"}' http://%s/wm/staticflowentrypusher/json" % (ap1Dpid, ap1Dpid+"."+args.circuitName+".r", args.dstAddress, args.srcAddress, "0x800", ap2Port, ap1Port, controllerRestIp)
               result = os.popen(command).read()
-              print command
+              print command + "\n" + result + "\n"
   
             elif args.type == 'mac':
               
               command = "curl -s -d '{\"switch\": \"%s\", \"name\":\"%s\", \"src-mac\":\"%s\", \"dst-mac\":\"%s\", \"cookie\":\"0\", \"priority\":\"32768\", \"ingress-port\":\"%s\",\"active\":\"true\", \"actions\":\"output=%s\"}' http://%s/wm/staticflowentrypusher/json" % (ap1Dpid, ap1Dpid+"."+args.circuitName+".f", args.srcAddress, args.dstAddress, ap1Port, ap2Port, controllerRestIp)
               result = os.popen(command).read()
-              print command
+              print command + "\n" + result + "\n"
   
               command = "curl -s -d '{\"switch\": \"%s\", \"name\":\"%s\", \"src-mac\":\"%s\", \"dst-mac\":\"%s\", \"cookie\":\"0\", \"priority\":\"32768\", \"ingress-port\":\"%s\",\"active\":\"true\", \"actions\":\"output=%s\"}' http://%s/wm/staticflowentrypusher/json" % (ap1Dpid, ap1Dpid+"."+args.circuitName+".r", args.dstAddress, args.srcAddress, ap2Port, ap1Port, controllerRestIp)
               result = os.popen(command).read()
-              print command
+              print command + "\n" + result + "\n"
 
             command = "curl -s -d '{\"switch\": \"%s\", \"name\":\"%s\", \"ether-type\":\"%s\", \"cookie\":\"0\", \"priority\":\"32768\", \"ingress-port\":\"%s\",\"active\":\"true\", \"actions\":\"output=%s\"}' http://%s/wm/staticflowentrypusher/json" % (ap1Dpid, ap1Dpid+"."+args.circuitName+".farp", "0x806", ap1Port, ap2Port, controllerRestIp)
             result = os.popen(command).read()
-            print command
+            print command + "\n" + result + "\n"
 
             command = "curl -s -d '{\"switch\": \"%s\", \"name\":\"%s\", \"ether-type\":\"%s\", \"cookie\":\"0\", \"priority\":\"32768\", \"ingress-port\":\"%s\",\"active\":\"true\", \"actions\":\"output=%s\"}' http://%s/wm/staticflowentrypusher/json" % (ap1Dpid, ap1Dpid+"."+args.circuitName+".rarp", "0x806", ap2Port, ap1Port, controllerRestIp)
             result = os.popen(command).read()
-            print command
+            print command + "\n" + result + "\n"
   
               
             # store created circuit attributes in local ./circuits.json
@@ -252,5 +251,5 @@ elif args.action=='delete':
 
     if not circuitExists:
         print "specified circuit does not exist"
-        sys.exit()
+        sys.exit(1)
 
