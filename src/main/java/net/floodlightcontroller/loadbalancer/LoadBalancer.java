@@ -30,31 +30,6 @@ import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import org.openflow.protocol.OFFlowMod;
-import org.openflow.protocol.OFMatch;
-import org.openflow.protocol.OFMessage;
-import org.openflow.protocol.OFPacketIn;
-import org.openflow.protocol.OFPacketOut;
-import org.openflow.protocol.OFPort;
-import org.openflow.protocol.OFType;
-import org.openflow.protocol.action.OFAction;
-import org.openflow.protocol.action.OFActionDataLayerDestination;
-import org.openflow.protocol.action.OFActionDataLayerSource;
-import org.openflow.protocol.action.OFActionEnqueue;
-import org.openflow.protocol.action.OFActionNetworkLayerDestination;
-import org.openflow.protocol.action.OFActionNetworkLayerSource;
-import org.openflow.protocol.action.OFActionNetworkTypeOfService;
-import org.openflow.protocol.action.OFActionOutput;
-import org.openflow.protocol.action.OFActionStripVirtualLan;
-import org.openflow.protocol.action.OFActionTransportLayerDestination;
-import org.openflow.protocol.action.OFActionTransportLayerSource;
-import org.openflow.protocol.action.OFActionVirtualLanIdentifier;
-import org.openflow.protocol.action.OFActionVirtualLanPriorityCodePoint;
-import org.openflow.util.HexString;
-import org.openflow.util.U16;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import net.floodlightcontroller.core.FloodlightContext;
 import net.floodlightcontroller.core.IFloodlightProviderService;
 import net.floodlightcontroller.core.IOFMessageListener;
@@ -82,6 +57,31 @@ import net.floodlightcontroller.topology.ITopologyService;
 import net.floodlightcontroller.topology.NodePortTuple;
 import net.floodlightcontroller.util.MACAddress;
 import net.floodlightcontroller.util.OFMessageDamper;
+
+import org.openflow.protocol.OFFlowMod;
+import org.openflow.protocol.OFMatch;
+import org.openflow.protocol.OFMessage;
+import org.openflow.protocol.OFPacketIn;
+import org.openflow.protocol.OFPacketOut;
+import org.openflow.protocol.OFPort;
+import org.openflow.protocol.OFType;
+import org.openflow.protocol.action.OFAction;
+import org.openflow.protocol.action.OFActionDataLayerDestination;
+import org.openflow.protocol.action.OFActionDataLayerSource;
+import org.openflow.protocol.action.OFActionEnqueue;
+import org.openflow.protocol.action.OFActionNetworkLayerDestination;
+import org.openflow.protocol.action.OFActionNetworkLayerSource;
+import org.openflow.protocol.action.OFActionNetworkTypeOfService;
+import org.openflow.protocol.action.OFActionOutput;
+import org.openflow.protocol.action.OFActionStripVirtualLan;
+import org.openflow.protocol.action.OFActionTransportLayerDestination;
+import org.openflow.protocol.action.OFActionTransportLayerSource;
+import org.openflow.protocol.action.OFActionVirtualLanIdentifier;
+import org.openflow.protocol.action.OFActionVirtualLanPriorityCodePoint;
+import org.openflow.util.HexString;
+import org.openflow.util.U16;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * A simple load balancer module for ping, tcp, and udp flows. This module is accessed 
@@ -240,12 +240,8 @@ public class LoadBalancer implements IFloodlightModule,
                     LBMember member = members.get(pool.pickMember(client));
 
                     // for chosen member, check device manager and find and push routes, in both directions                    
-                    pushBidirectionalVipRoutes(sw, pi, cntx, client, member);
+                    pushBidirectionalVipRoutesAndPushPacket(sw, pi, cntx, client, member);
                    
-                    // packet out based on table rule
-                    pushPacket(pkt, sw, pi.getBufferId(), pi.getInPort(), OFPort.OFPP_TABLE.getValue(),
-                                cntx, true);
-
                     return Command.STOP;
                 }
             }
@@ -300,7 +296,7 @@ public class LoadBalancer implements IFloodlightModule,
                 
         // push ARP reply out
         pushPacket(arpReply, sw, OFPacketOut.BUFFER_ID_NONE, OFPort.OFPP_NONE.getValue(),
-                   pi.getInPort(), cntx, true);
+                   pi.getInPort(), null, 0, cntx, true);
         log.debug("proxy ARP reply pushed as {}", IPv4.fromIPv4Address(vips.get(vipId).address));
         
         return;
@@ -322,6 +318,8 @@ public class LoadBalancer implements IFloodlightModule,
                            int bufferId,
                            short inPort,
                            short outPort, 
+                           List<OFAction> additional_actions,
+                           int additional_actions_length,
                            FloodlightContext cntx,
                            boolean flush) {
         if (log.isTraceEnabled()) {
@@ -335,10 +333,14 @@ public class LoadBalancer implements IFloodlightModule,
 
         // set actions
         List<OFAction> actions = new ArrayList<OFAction>();
+        if (additional_actions != null) {
+        	actions = additional_actions;
+        }
+        
         actions.add(new OFActionOutput(outPort, (short) 0xffff));
 
         po.setActions(actions)
-          .setActionsLength((short) OFActionOutput.MINIMUM_LENGTH);
+          .setActionsLength((short) (additional_actions_length + (short) OFActionOutput.MINIMUM_LENGTH));
         short poLength =
                 (short) (po.getActionsLength() + OFPacketOut.MINIMUM_LENGTH);
 
@@ -378,7 +380,7 @@ public class LoadBalancer implements IFloodlightModule,
      * @param IPClient client
      * @param LBMember member
      */
-    protected void pushBidirectionalVipRoutes(IOFSwitch sw, OFPacketIn pi, FloodlightContext cntx, IPClient client, LBMember member) {
+    protected void pushBidirectionalVipRoutesAndPushPacket(IOFSwitch sw, OFPacketIn pi, FloodlightContext cntx, IPClient client, LBMember member) {
         
         // borrowed code from Forwarding to retrieve src and dst device entities
         // Check if we have the location of the destination
@@ -456,54 +458,194 @@ public class LoadBalancer implements IFloodlightModule,
         SwitchPort[] dstDaps = dstDevice.getAttachmentPoints();
         Arrays.sort(dstDaps, clusterIdComparator);
         
+        boolean packetOutSent = false;
+        Ethernet eth = IFloodlightProviderService.bcStore.get(cntx,
+                IFloodlightProviderService.CONTEXT_PI_PAYLOAD);
+        IPacket pkt = eth.getPayload();
+        OFMatch match = new OFMatch();
+        match.loadFromPacket(pi.getPacketData(), pi.getInPort());
+        
+        
+        SwitchPort packetInDap = new SwitchPort(sw.getId(), pi.getInPort());
+        NodePortTuple packetInNpt = new NodePortTuple(sw.getId(), pi.getInPort());
+        
         int iSrcDaps = 0, iDstDaps = 0;
+        
+        ArrayList<Route> routesIn = new ArrayList<Route>();
+        ArrayList<Route> routesOut = new ArrayList<Route>();
 
         // following Forwarding's same routing routine, retrieve both in-bound and out-bound routes for
         // all clusters.
+        
         while ((iSrcDaps < srcDaps.length) && (iDstDaps < dstDaps.length)) {
-            SwitchPort srcDap = srcDaps[iSrcDaps];
-            SwitchPort dstDap = dstDaps[iDstDaps];
-            Long srcCluster = 
-                    topology.getL2DomainId(srcDap.getSwitchDPID());
-            Long dstCluster = 
-                    topology.getL2DomainId(dstDap.getSwitchDPID());
+        	SwitchPort srcDap = srcDaps[iSrcDaps];
+        	SwitchPort dstDap = dstDaps[iDstDaps];
+        	Long srcCluster = 
+        			topology.getL2DomainId(srcDap.getSwitchDPID());
+        	Long dstCluster = 
+        			topology.getL2DomainId(dstDap.getSwitchDPID());
 
-            int srcVsDest = srcCluster.compareTo(dstCluster);
-            if (srcVsDest == 0) {
-                if (!srcDap.equals(dstDap) && 
-                        (srcCluster != null) && 
-                        (dstCluster != null)) {
-                    Route routeIn = 
-                            routingEngine.getRoute(srcDap.getSwitchDPID(),
-                                                   (short)srcDap.getPort(),
-                                                   dstDap.getSwitchDPID(),
-                                                   (short)dstDap.getPort(), 0);
-                    Route routeOut = 
-                            routingEngine.getRoute(dstDap.getSwitchDPID(),
-                                                   (short)dstDap.getPort(),
-                                                   srcDap.getSwitchDPID(),
-                                                   (short)srcDap.getPort(), 0);
+        	int srcVsDest = srcCluster.compareTo(dstCluster);
+        	if (srcVsDest == 0) {
+        		if (!srcDap.equals(dstDap) && 
+        				(srcCluster != null) && 
+        				(dstCluster != null)) {
+        			Route routeIn = 
+        					routingEngine.getRoute(srcDap.getSwitchDPID(),
+        							(short)srcDap.getPort(),
+        							dstDap.getSwitchDPID(),
+        							(short)dstDap.getPort(), 0);
+        			Route routeOut = 
+        					routingEngine.getRoute(dstDap.getSwitchDPID(),
+        							(short)dstDap.getPort(),
+        							srcDap.getSwitchDPID(),
+        							(short)srcDap.getPort(), 0);
+        			routesIn.add(routeIn);
+        			routesOut.add(routeOut);
 
-                    // use static flow entry pusher to push flow mod along in and out path
-                    // in: match src client (ip, port), rewrite dest from vip ip/port to member ip/port, forward
-                    // out: match dest client (ip, port), rewrite src from member ip/port to vip ip/port, forward
-                    
-                    if (routeIn != null) {
-                        pushStaticVipRoute(true, routeIn, client, member, sw.getId());
-                    }
-                    
-                    if (routeOut != null) {
-                        pushStaticVipRoute(false, routeOut, client, member, sw.getId());
-                    }
+        			// use static flow entry pusher to push flow mod along in and out path
+        			// in: match src client (ip, port), rewrite dest from vip ip/port to member ip/port, forward
+        			// out: match dest client (ip, port), rewrite src from member ip/port to vip ip/port, forward
 
-                }
-                iSrcDaps++;
-                iDstDaps++;
-            } else if (srcVsDest < 0) {
-                iSrcDaps++;
-            } else {
-                iDstDaps++;
-            }
+        			if (routeIn != null) {
+        				pushStaticVipRoute(true, routeIn, client, member, sw.getId());
+        				if (!packetOutSent){
+        					if (match.getNetworkSource() == client.ipAddress
+//	         		        		match.getNetworkProtocol() == client.nw_proto &&
+//	         		        		match.getTransportSource() == (client.srcPort & 0xffff) &&
+//	         		        		match.getDataLayerType() == 0x800
+        							) {
+        						// the packet in is a inbound one, find where in the path we are
+        						List<NodePortTuple> path = routeIn.getPath();
+        						for (int i = 0; i < path.size()-1; i+=2){
+        							NodePortTuple currentInNpt = path.get(i);
+        							NodePortTuple currentOutNpt = path.get(i+1);
+        							if (currentInNpt.equals(packetInNpt)) {
+        								// send packet out
+        								List<OFAction> additional_actions = new ArrayList<OFAction>();
+        								int additional_actions_length = 0;
+        								if(srcDap.equals(packetInDap)){
+        									//pin switch
+        									additional_actions.add(new OFActionNetworkLayerDestination(member.address));
+        									additional_actions.add(new OFActionDataLayerDestination(MACAddress.valueOf(member.macString).toBytes()));
+        									additional_actions_length = OFActionNetworkLayerDestination.MINIMUM_LENGTH + 
+        											OFActionDataLayerDestination.MINIMUM_LENGTH;
+        								}
+
+        								pushPacket(pkt, sw, pi.getBufferId(), pi.getInPort(), currentOutNpt.getPortId(), 
+        										additional_actions, additional_actions_length,
+        										cntx, true);
+        								packetOutSent = true;
+        								log.trace("XXXX1");
+        								break;
+        							}
+        						}
+        					}
+        				}
+        			}
+
+        			if (routeOut != null) {
+        				pushStaticVipRoute(false, routeOut, client, member, sw.getId());
+        				if (!packetOutSent){
+        					if (match.getNetworkDestination() == client.ipAddress
+//	         		        		match.getNetworkProtocol() == client.nw_proto &&
+//	         		        		match.getTransportSource() == (client.srcPort & 0xffff) &&
+//	         		        		match.getDataLayerType() == 0x800
+        							) {
+        						// the packet in is a inbound one, find where in the path we are
+        						List<NodePortTuple> path = routeOut.getPath();
+        						for (int i = 0; i < path.size()-1; i+=2){
+        							NodePortTuple currentInNpt = path.get(i);
+        							NodePortTuple currentOutNpt = path.get(i+1);
+        							if (currentInNpt.equals(packetInNpt)) {
+        								// send packet out
+        								List<OFAction> additional_actions = new ArrayList<OFAction>();
+        								int additional_actions_length = 0;
+        								if(dstDap.equals(packetInDap)){
+        									//pin switch
+        									additional_actions.add(new OFActionNetworkLayerSource(vips.get(member.vipId).address));
+        									additional_actions.add(new OFActionDataLayerSource(MACAddress.valueOf(vips.get(member.vipId).proxyMac.toString()).toBytes()));
+        									additional_actions_length = OFActionNetworkLayerSource.MINIMUM_LENGTH + 
+        											OFActionDataLayerSource.MINIMUM_LENGTH;
+        								}
+
+        								pushPacket(pkt, sw, pi.getBufferId(), pi.getInPort(), currentOutNpt.getPortId(), 
+        										additional_actions, additional_actions_length,
+        										cntx, true);
+        								packetOutSent = true;
+        								log.trace("XXXX2");
+        								break;
+        							}
+        						}
+        					}
+        				}
+        			}
+
+        		}
+        		iSrcDaps++;
+        		iDstDaps++;
+        	} else if (srcVsDest < 0) {
+        		iSrcDaps++;
+        	} else {
+        		iDstDaps++;
+        	}
+        }
+
+        if (!packetOutSent && (0 < dstDaps.length)) {
+	    	iDstDaps = 0;
+	    	SwitchPort srcDap = packetInDap;
+	    	SwitchPort dstDap = dstDaps[iDstDaps];
+	    	Route routeIn = 
+					routingEngine.getRoute(srcDap.getSwitchDPID(),
+							(short)srcDap.getPort(),
+							dstDap.getSwitchDPID(),
+							(short)dstDap.getPort(), 0);
+			routesIn.add(routeIn);
+	
+			// same code as above
+			// TODO(jm): refactor
+			
+			if (routeIn != null) {
+				pushStaticVipRoute(true, routeIn, client, member, sw.getId());
+				if (!packetOutSent){
+					if (match.getNetworkSource() == client.ipAddress
+	//	         		        		match.getNetworkProtocol() == client.nw_proto &&
+	//	         		        		match.getTransportSource() == (client.srcPort & 0xffff) &&
+	//	         		        		match.getDataLayerType() == 0x800
+							) {
+						// the packet in is a inbound one, find where in the path we are
+						List<NodePortTuple> path = routeIn.getPath();
+						for (int i = 0; i < path.size()-1; i+=2){
+							NodePortTuple currentInNpt = path.get(i);
+							NodePortTuple currentOutNpt = path.get(i+1);
+							if (currentInNpt.equals(packetInNpt)) {
+								// send packet out
+								List<OFAction> additional_actions = new ArrayList<OFAction>();
+								int additional_actions_length = 0;
+								if(srcDap.equals(packetInDap)){
+									//pin switch
+									additional_actions.add(new OFActionNetworkLayerDestination(member.address));
+									additional_actions.add(new OFActionDataLayerDestination(MACAddress.valueOf(member.macString).toBytes()));
+									additional_actions_length = OFActionNetworkLayerDestination.MINIMUM_LENGTH + 
+											OFActionDataLayerDestination.MINIMUM_LENGTH;
+								}
+	
+								pushPacket(pkt, sw, pi.getBufferId(), pi.getInPort(), currentOutNpt.getPortId(), 
+										additional_actions, additional_actions_length,
+										cntx, true);
+								packetOutSent = true;
+								log.trace("XXXX3");
+								break;
+							}
+						}
+					}
+				}
+			}
+	        if (!packetOutSent) {
+	        	// packet out based on table rule
+	        	pushPacket(pkt, sw, pi.getBufferId(), pi.getInPort(), OFPort.OFPP_TABLE.getValue(), null, 0,
+	        			cntx, true);
+	        }
         }
         return;
     }
@@ -540,8 +682,10 @@ public class LoadBalancer implements IFloodlightModule,
                fm.setPriority(Short.MAX_VALUE);
                
                if (inBound) {
-                   entryName = "inbound-vip-"+ member.vipId+"-client-"+client.ipAddress+"-port-"+client.targetPort
-                           +"-srcswitch-"+path.get(0).getNodeId()+"-sw-"+sw;
+                   entryName = "inbound-vip-"+ member.vipId+"-client-"+client.ipAddress
+                		   +"-srcport-"+client.srcPort+"-dstport-"+client.targetPort
+                		   +"-srcswitch-"+path.get(0).getNodeId()+"-sw-"+sw;
+                   
                    matchString = "nw_src="+IPv4.fromIPv4Address(client.ipAddress)+","
                                + "nw_proto="+String.valueOf(client.nw_proto)+","
                                + "tp_src="+String.valueOf(client.srcPort & 0xffff)+","
@@ -557,8 +701,10 @@ public class LoadBalancer implements IFloodlightModule,
                                "output="+path.get(i+1).getPortId();
                    }
                } else {
-                   entryName = "outbound-vip-"+ member.vipId+"-client-"+client.ipAddress+"-port-"+client.targetPort
-                           +"-srcswitch-"+path.get(0).getNodeId()+"-sw-"+sw;
+                   entryName = "outbound-vip-"+ member.vipId+"-client-"+client.ipAddress
+                		   +"-srcport-"+client.srcPort+"-dstport-"+client.targetPort
+                		   +"-srcswitch-"+path.get(0).getNodeId()+"-sw-"+sw;
+                   
                    matchString = "nw_dst="+IPv4.fromIPv4Address(client.ipAddress)+","
                                + "nw_proto="+String.valueOf(client.nw_proto)+","
                                + "tp_dst="+String.valueOf(client.srcPort & 0xffff)+","
