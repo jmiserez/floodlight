@@ -465,6 +465,9 @@ public class LoadBalancer implements IFloodlightModule,
         OFMatch match = new OFMatch();
         match.loadFromPacket(pi.getPacketData(), pi.getInPort());
         
+        short po_outPort = 0;
+        List<OFAction> po_additional_actions = null;
+        int po_additional_actions_length = 0;
         
         SwitchPort packetInDap = new SwitchPort(sw.getId(), pi.getInPort());
         NodePortTuple packetInNpt = new NodePortTuple(sw.getId(), pi.getInPort());
@@ -531,10 +534,10 @@ public class LoadBalancer implements IFloodlightModule,
         									additional_actions_length = OFActionNetworkLayerDestination.MINIMUM_LENGTH + 
         											OFActionDataLayerDestination.MINIMUM_LENGTH;
         								}
-
-        								pushPacket(pkt, sw, pi.getBufferId(), pi.getInPort(), currentOutNpt.getPortId(), 
-        										additional_actions, additional_actions_length,
-        										cntx, true);
+        								
+        								po_additional_actions = additional_actions;
+        								po_additional_actions_length = additional_actions_length;
+        								po_outPort = currentOutNpt.getPortId();
         								packetOutSent = true;
         								log.trace("XXXX1");
         								break;
@@ -568,10 +571,10 @@ public class LoadBalancer implements IFloodlightModule,
         									additional_actions_length = OFActionNetworkLayerSource.MINIMUM_LENGTH + 
         											OFActionDataLayerSource.MINIMUM_LENGTH;
         								}
-
-        								pushPacket(pkt, sw, pi.getBufferId(), pi.getInPort(), currentOutNpt.getPortId(), 
-        										additional_actions, additional_actions_length,
-        										cntx, true);
+        								po_additional_actions = additional_actions;
+        								po_additional_actions_length = additional_actions_length;
+        								po_outPort = currentOutNpt.getPortId();
+        								
         								packetOutSent = true;
         								log.trace("XXXX2");
         								break;
@@ -629,10 +632,9 @@ public class LoadBalancer implements IFloodlightModule,
 									additional_actions_length = OFActionNetworkLayerDestination.MINIMUM_LENGTH + 
 											OFActionDataLayerDestination.MINIMUM_LENGTH;
 								}
-	
-								pushPacket(pkt, sw, pi.getBufferId(), pi.getInPort(), currentOutNpt.getPortId(), 
-										additional_actions, additional_actions_length,
-										cntx, true);
+								po_additional_actions = additional_actions;
+								po_additional_actions_length = additional_actions_length;
+								po_outPort = currentOutNpt.getPortId();
 								packetOutSent = true;
 								log.trace("XXXX3");
 								break;
@@ -641,7 +643,11 @@ public class LoadBalancer implements IFloodlightModule,
 					}
 				}
 			}
-	        if (!packetOutSent) {
+			if (packetOutSent) {
+				pushPacket(pkt, sw, pi.getBufferId(), pi.getInPort(), po_outPort, 
+						po_additional_actions, po_additional_actions_length,
+						cntx, true);
+			} else {
 	        	// packet out based on table rule
 	        	pushPacket(pkt, sw, pi.getBufferId(), pi.getInPort(), OFPort.OFPP_TABLE.getValue(), null, 0,
 	        			cntx, true);
