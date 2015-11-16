@@ -58,6 +58,7 @@ import net.floodlightcontroller.topology.NodePortTuple;
 import net.floodlightcontroller.util.MACAddress;
 import net.floodlightcontroller.util.OFMessageDamper;
 
+import org.openflow.protocol.OFBarrierRequest;
 import org.openflow.protocol.OFFlowMod;
 import org.openflow.protocol.OFMatch;
 import org.openflow.protocol.OFMessage;
@@ -364,6 +365,12 @@ public class LoadBalancer implements IFloodlightModule,
 
         po.setLength(poLength);
 
+        OFBarrierRequest barrier = (OFBarrierRequest) floodlightProvider.getOFMessageFactory().getMessage(OFType.BARRIER_REQUEST);
+        try {
+        	messageDamper.write(sw, barrier, cntx, flush);
+        } catch (IOException e) {
+     	   log.error("Failure writing barrier", e);
+        }
         try {
             counterStore.updatePktOutFMCounterStoreLocal(sw, po);
             messageDamper.write(sw, po, cntx, flush);
